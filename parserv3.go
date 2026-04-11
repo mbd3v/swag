@@ -553,11 +553,6 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 				return err
 			}
 
-			err = operation.ProcessDiscriminatorComment()
-			if err != nil {
-				return err
-			}
-
 			err = processRouterOperationV3(p, operation)
 			if err != nil {
 				return err

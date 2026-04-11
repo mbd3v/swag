@@ -6,18 +6,12 @@ import (
 	"go/ast"
 	"log"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/sv-tools/openapi/spec"
 	"gopkg.in/yaml.v3"
 )
-
-type parsedDiscriminator struct {
-	propertyName string
-	mapping      map[string]string // nil when not specified
-}
 
 // OperationV3 describes a single API operation on a path.
 // For more information: https://github.com/swaggo/swag#api-operation
@@ -27,7 +21,6 @@ type OperationV3 struct {
 	spec.Operation
 	RouterProperties  []RouteProperties
 	responseMimeTypes []string
-	discriminatorInfo *parsedDiscriminator
 }
 
 // NewOperationV3 returns a new instance of OperationV3.
@@ -106,8 +99,6 @@ func (o *OperationV3) ParseComment(comment string, astFile *ast.File) error {
 		return o.ParseServerURLComment(lineRemainder)
 	case "@servers.description":
 		return o.ParseServerDescriptionComment(lineRemainder)
-	case discriminatorAttr:
-		return o.ParseDiscriminatorComment(lineRemainder)
 	default:
 		return o.ParseMetadata(attribute, lowerAttribute, lineRemainder)
 	}
@@ -520,7 +511,7 @@ func (o *OperationV3) fillRequestBody(name string, schema *spec.RefOrSpec[spec.S
 	if schema.Spec != nil {
 		schema.Spec.Title = name
 	}
-	if mediaType.Spec.Schema == nil || isDefaultAcceptSchema(mediaType.Spec.Schema) {
+	if mediaType.Spec.Schema == nil {
 		mediaType.Spec.Schema = schema
 	} else if mediaType.Spec.Schema.Ref != nil || mediaType.Spec.Schema.Spec.OneOf == nil {
 		// If there's an existing schema that doesn't have oneOf, create a oneOf schema
@@ -531,29 +522,6 @@ func (o *OperationV3) fillRequestBody(name string, schema *spec.RefOrSpec[spec.S
 		// If there's already a oneOf schema, append to it
 		mediaType.Spec.Schema.Spec.OneOf = append(mediaType.Spec.Schema.Spec.OneOf, schema)
 	}
-}
-
-func isDefaultAcceptSchema(schema *spec.RefOrSpec[spec.Schema]) bool {
-	if schema == nil || schema.Ref != nil || schema.Spec == nil || schema.Spec.Type == nil {
-		return false
-	}
-
-	if len(*schema.Spec.Type) != 1 {
-		return false
-	}
-
-	schemaType := (*schema.Spec.Type)[0]
-	if schemaType != OBJECT && schemaType != STRING {
-		return false
-	}
-
-	base := spec.NewSchemaSpec()
-	base.Spec.Type = &spec.SingleOrArray[string]{schemaType}
-	if schema.Spec.Format != "" {
-		base.Spec.Format = schema.Spec.Format
-	}
-
-	return reflect.DeepEqual(base.Spec, schema.Spec)
 }
 
 func (o *OperationV3) parseParamAttribute(comment, objectType, schemaType string, param *spec.Parameter) error {
@@ -1302,88 +1270,4 @@ func (o *OperationV3) ParseCodeSample(attribute, _, lineRemainder string) error 
 
 	// Fallback into existing logic
 	return o.ParseMetadata(attribute, strings.ToLower(attribute), lineRemainder)
-}
-
-// ParseDiscriminatorComment parses the @Discriminator annotation.
-// Syntax: @Discriminator propertyName [key=ref,key=ref,...]
-func (o *OperationV3) ParseDiscriminatorComment(commentLine string) error {
-	if commentLine == "" {
-		return fmt.Errorf("@discriminator requires at least a propertyName")
-	}
-	parts := FieldsByAnySpace(commentLine, 2)
-	propertyName := parts[0]
-	var mapping map[string]string
-	if len(parts) == 2 {
-		parsed, err := parseDiscriminatorMapping(parts[1])
-		if err != nil {
-			return fmt.Errorf("@discriminator mapping: %w", err)
-		}
-		mapping = parsed
-	}
-	if o.discriminatorInfo != nil {
-		return fmt.Errorf("@discriminator already defined for this operation")
-	}
-	o.discriminatorInfo = &parsedDiscriminator{propertyName: propertyName, mapping: mapping}
-	return nil
-}
-
-func parseDiscriminatorMapping(raw string) (map[string]string, error) {
-	result := make(map[string]string)
-	for _, entry := range strings.Split(raw, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		kv := strings.SplitN(entry, "=", 2)
-		if len(kv) != 2 {
-			return nil, fmt.Errorf("invalid mapping entry %q: expected key=ref", entry)
-		}
-		key, ref := strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1])
-		if key == "" || ref == "" {
-			return nil, fmt.Errorf("invalid mapping entry %q: key and ref must not be empty", entry)
-		}
-		result[key] = ref
-	}
-	return result, nil
-}
-
-// ProcessDiscriminatorComment applies the parsed discriminator to any oneOf schemas in the operation's responses and request body.
-func (o *OperationV3) ProcessDiscriminatorComment() error {
-	if o.discriminatorInfo == nil {
-		return nil
-	}
-	d := buildDiscriminator(o.discriminatorInfo)
-	if o.Responses != nil {
-		for _, response := range o.Responses.Spec.Response {
-			applyDiscriminatorToContent(response.Spec.Spec.Content, d)
-		}
-		if o.Responses.Spec.Default != nil {
-			applyDiscriminatorToContent(o.Responses.Spec.Default.Spec.Spec.Content, d)
-		}
-	}
-	if o.RequestBody != nil {
-		applyDiscriminatorToContent(o.RequestBody.Spec.Spec.Content, d)
-	}
-	return nil
-}
-
-func buildDiscriminator(info *parsedDiscriminator) *spec.Discriminator {
-	d := spec.NewDiscriminator()
-	d.PropertyName = info.propertyName
-	if len(info.mapping) > 0 {
-		d.Mapping = info.mapping
-	}
-	return d
-}
-
-func applyDiscriminatorToContent(content map[string]*spec.Extendable[spec.MediaType], d *spec.Discriminator) {
-	for _, mediaType := range content {
-		if mediaType == nil || mediaType.Spec.Schema == nil {
-			continue
-		}
-		s := mediaType.Spec.Schema
-		if s.Spec != nil && len(s.Spec.OneOf) > 0 {
-			s.Spec.Discriminator = d
-		}
-	}
 }

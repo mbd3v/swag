@@ -72,7 +72,6 @@ const (
 	xCodeSamplesAttrOriginal = "@x-codeSamples"
 	scopeAttrPrefix          = "@scope."
 	stateAttr                = "@state"
-	discriminatorAttr        = "@discriminator"
 )
 
 // ParseFlag determine what to parse
