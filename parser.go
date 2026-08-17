@@ -516,6 +516,11 @@ func (parser *Parser) ParseAPIMultiSearchDir(searchDirs []string, mainAPIFile st
 		if err != nil {
 			return err
 		}
+
+		err = parser.deduplicateComponentsV3()
+		if err != nil {
+			return err
+		}
 	} else {
 		err = parser.packages.RangeFiles(parser.ParseRouterAPIInfo)
 		if err != nil {

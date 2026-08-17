@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -439,6 +440,82 @@ func TestParseCallbacksAndLinksV3(t *testing.T) {
 	assert.Equal(t, "$response.body#/id", link.Parameters["userId"])
 }
 
+func TestDeduplicateComponentsV3(t *testing.T) {
+	t.Parallel()
+
+	searchDir := "testdata/v3/dedup"
+
+	p := New(GenerateOpenAPI3Doc(true))
+	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
+	require.NoError(t, err)
+
+	paths := p.openAPI.Paths.Spec.Paths
+
+	getOp := func(path string) *spec.Operation {
+		item, ok := paths[path]
+		require.True(t, ok, "missing path %q", path)
+		require.NotNil(t, item.Spec.Spec.Get, "missing GET %q", path)
+
+		return item.Spec.Spec.Get.Spec
+	}
+
+	pet := getOp("/pets/{id}")
+	widget := getOp("/widgets/{id}")
+	gadget := getOp("/gadgets/{id}")
+
+	// the "id" path parameter is identical across all three GET operations: shared
+	require.Len(t, pet.Parameters, 2)
+	idRef := pet.Parameters[0]
+	require.NotNil(t, idRef.Ref, "id parameter should have been extracted to a component")
+	assert.Same(t, idRef.Ref, widget.Parameters[0].Ref, "different operations, same $ref target expected")
+	require.Len(t, gadget.Parameters, 1)
+	assert.Equal(t, idRef.Ref.Ref, gadget.Parameters[0].Ref.Ref)
+
+	// X-Request-ID header param is identical between pet/widget only, not present on gadget
+	require.NotNil(t, pet.Parameters[1].Ref, "X-Request-ID parameter should have been extracted")
+	assert.Equal(t, pet.Parameters[1].Ref.Ref, widget.Parameters[1].Ref.Ref)
+
+	// 200 response (with the X-RateLimit-Remaining header) is shared between pet/widget,
+	// but distinct from gadget's 200 response (no header) — content fingerprinting must
+	// not conflate them just because they share a status code and a schema.
+	petOK := pet.Responses.Spec.Response["200"]
+	widgetOK := widget.Responses.Spec.Response["200"]
+	gadgetOK := gadget.Responses.Spec.Response["200"]
+	require.NotNil(t, petOK.Ref)
+	assert.Equal(t, petOK.Ref.Ref, widgetOK.Ref.Ref)
+	require.NotNil(t, gadgetOK.Ref)
+	assert.NotEqual(t, petOK.Ref.Ref, gadgetOK.Ref.Ref, "gadget's 200 has no header, must not share pet/widget's component")
+
+	petResponse := resolveResponseRefV3(t, p, petOK)
+	require.Contains(t, petResponse.Spec.Spec.Headers, "X-RateLimit-Remaining")
+	assert.NotNil(t, petResponse.Spec.Spec.Headers["X-RateLimit-Remaining"].Ref, "header should have been extracted to a component")
+
+	gadgetResponse := resolveResponseRefV3(t, p, gadgetOK)
+	assert.NotContains(t, gadgetResponse.Spec.Spec.Headers, "X-RateLimit-Remaining")
+
+	// 404 response is shared between pet/widget
+	pet404 := pet.Responses.Spec.Response["404"]
+	widget404 := widget.Responses.Spec.Response["404"]
+	require.NotNil(t, pet404.Ref)
+	assert.Equal(t, pet404.Ref.Ref, widget404.Ref.Ref)
+
+	// request body is shared between the two POST operations
+	createPetPath, ok := paths["/pets/create"]
+	require.True(t, ok)
+	createWidgetPath, ok := paths["/widgets/create"]
+	require.True(t, ok)
+
+	createPetBody := createPetPath.Spec.Spec.Post.Spec.RequestBody
+	createWidgetBody := createWidgetPath.Spec.Spec.Post.Spec.RequestBody
+	require.NotNil(t, createPetBody.Ref, "request body should have been extracted to a component")
+	assert.Equal(t, createPetBody.Ref.Ref, createWidgetBody.Ref.Ref)
+
+	// every $ref actually resolves to something in components — no dangling references
+	require.NotNil(t, idRef.Ref)
+	name := idRef.Ref.Ref[strings.LastIndex(idRef.Ref.Ref, "/")+1:]
+	assert.Contains(t, p.openAPI.Components.Spec.Parameters, name)
+}
+
 func TestParseSimpleApiV3(t *testing.T) {
 	t.Parallel()
 
@@ -456,7 +533,7 @@ func TestParseSimpleApiV3(t *testing.T) {
 	assert.Equal(t, "Add a new pet to the store", path.Summary)
 	assert.Equal(t, "get-string-by-int", path.OperationID)
 
-	response := path.Responses.Spec.Response["200"]
+	response := resolveResponseRefV3(t, p, path.Responses.Spec.Response["200"])
 	assert.Equal(t, "ok", response.Spec.Spec.Description)
 
 	path = paths["/FormData"].Spec.Spec.Post.Spec
@@ -801,4 +878,22 @@ func TestGetSchemaByRef(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Equal(t, &spec.Schema{}, result)
 	})
+}
+
+// resolveResponseRefV3 returns response as-is if it's inline, or the referenced
+// components.responses entry if response deduplication ($ref'd it) turned it into a ref.
+func resolveResponseRefV3(t *testing.T, p *Parser, response *spec.RefOrSpec[spec.Extendable[spec.Response]]) *spec.RefOrSpec[spec.Extendable[spec.Response]] {
+	t.Helper()
+
+	require.NotNil(t, response)
+
+	if response.Ref == nil {
+		return response
+	}
+
+	name := response.Ref.Ref[strings.LastIndex(response.Ref.Ref, "/")+1:]
+	resolved, ok := p.openAPI.Components.Spec.Responses[name]
+	require.True(t, ok, "dangling response $ref %q", response.Ref.Ref)
+
+	return resolved
 }
