@@ -65,6 +65,8 @@ const (
 	secImplicitAttr          = "@securitydefinitions.oauth2.implicit"
 	secPasswordAttr          = "@securitydefinitions.oauth2.password"
 	secAccessCodeAttr        = "@securitydefinitions.oauth2.accesscode"
+	secOpenIDConnectAttr     = "@securitydefinitions.openidconnect"
+	secMutualTLSAttr         = "@securitydefinitions.mutualtls"
 	tosAttr                  = "@termsofservice"
 	extDocsDescAttr          = "@externaldocs.description"
 	extDocsURLAttr           = "@externaldocs.url"

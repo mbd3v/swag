@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/sv-tools/openapi/spec"
 )
 
@@ -62,6 +63,110 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		).ComplementSchema(schema)
 		assert.NoError(t, err)
 		assert.Equal(t, "csv", schema.Spec.Format)
+	})
+
+	t.Run("WriteOnly tag", func(t *testing.T) {
+		t.Parallel()
+
+		schema := spec.NewSchemaSpec()
+		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
+		err := newTagBaseFieldParserV3(
+			&Parser{},
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"test" writeonly:"true"`,
+			}},
+		).ComplementSchema(schema)
+		assert.NoError(t, err)
+		assert.True(t, schema.Spec.WriteOnly)
+	})
+
+	t.Run("Schema-level deprecated tag", func(t *testing.T) {
+		t.Parallel()
+
+		schema := spec.NewSchemaSpec()
+		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
+		err := newTagBaseFieldParserV3(
+			&Parser{},
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"test" deprecated:"true"`,
+			}},
+		).ComplementSchema(schema)
+		assert.NoError(t, err)
+		assert.True(t, schema.Spec.Deprecated)
+	})
+
+	t.Run("Const tag", func(t *testing.T) {
+		t.Parallel()
+
+		schema := spec.NewSchemaSpec()
+		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
+		err := newTagBaseFieldParserV3(
+			&Parser{},
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"test" const:"fixed-value"`,
+			}},
+		).ComplementSchema(schema)
+		assert.NoError(t, err)
+		assert.Equal(t, "fixed-value", schema.Spec.Const)
+	})
+
+	t.Run("ContentEncoding and ContentMediaType tags", func(t *testing.T) {
+		t.Parallel()
+
+		schema := spec.NewSchemaSpec()
+		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
+		err := newTagBaseFieldParserV3(
+			&Parser{},
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"test" contentEncoding:"base64" contentMediaType:"image/png"`,
+			}},
+		).ComplementSchema(schema)
+		assert.NoError(t, err)
+		assert.Equal(t, "base64", schema.Spec.ContentEncoding)
+		assert.Equal(t, "image/png", schema.Spec.ContentMediaType)
+	})
+
+	t.Run("MinProperties and MaxProperties tags", func(t *testing.T) {
+		t.Parallel()
+
+		schema := spec.NewSchemaSpec()
+		schema.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
+		err := newTagBaseFieldParserV3(
+			&Parser{},
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"test" minProperties:"1" maxProperties:"5"`,
+			}},
+		).ComplementSchema(schema)
+		assert.NoError(t, err)
+		require.NotNil(t, schema.Spec.MinProperties)
+		assert.Equal(t, 1, *schema.Spec.MinProperties)
+		require.NotNil(t, schema.Spec.MaxProperties)
+		assert.Equal(t, 5, *schema.Spec.MaxProperties)
+	})
+
+	t.Run("AnyOf tag", func(t *testing.T) {
+		t.Parallel()
+
+		p := New()
+		p.addTestType("model.Cat")
+		p.addTestType("model.Dog")
+
+		schema := spec.NewSchemaSpec()
+		schema.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
+		err := newTagBaseFieldParserV3(
+			p,
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"pet" anyOf:"model.Cat,model.Dog"`,
+			}},
+		).ComplementSchema(schema)
+		assert.NoError(t, err)
+		assert.Len(t, schema.Spec.AnyOf, 2)
 	})
 
 	t.Run("Required tag", func(t *testing.T) {

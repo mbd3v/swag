@@ -399,7 +399,7 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 		case OBJECT:
 			return fmt.Errorf("%s is not supported type for %s", refType, paramType)
 		}
-	case "query", "header":
+	case "query", "header", "cookie":
 		switch objectType {
 		case ARRAY:
 			if !IsPrimitiveType(refType) && !(refType == "file" && paramType == "formData") {

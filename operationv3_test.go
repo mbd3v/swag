@@ -1177,6 +1177,27 @@ func TestParseParamCommentByQueryTypeV3(t *testing.T) {
 	assert.Equal(t, "query", parameterSpec.In)
 }
 
+func TestParseParamCommentByCookieTypeV3(t *testing.T) {
+	t.Parallel()
+
+	comment := `@Param session_id cookie string true "Session cookie"`
+	operation := NewOperationV3(New())
+
+	err := operation.ParseComment(comment, nil)
+	assert.NoError(t, err)
+
+	parameters := operation.Operation.Parameters
+	require.Len(t, parameters, 1)
+
+	parameterSpec := parameters[0].Spec.Spec
+	require.NotNil(t, parameterSpec)
+	assert.Equal(t, "Session cookie", parameterSpec.Description)
+	assert.Equal(t, "session_id", parameterSpec.Name)
+	assert.Equal(t, &typeString, parameterSpec.Schema.Spec.Type)
+	assert.True(t, parameterSpec.Required)
+	assert.Equal(t, "cookie", parameterSpec.In)
+}
+
 func TestParseParamCommentByBodyTypeV3(t *testing.T) {
 	t.Parallel()
 

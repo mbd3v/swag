@@ -436,6 +436,14 @@ const (
 	collectionFormatTag = "collectionFormat"
 	patternTag          = "pattern"
 	oneOfTag            = "oneOf"
+	anyOfTag            = "anyOf"
+	writeOnlyTag        = "writeonly"
+	constTag            = "const"
+	schemaDeprecatedTag = "deprecated"
+	contentEncodingTag  = "contentEncoding"
+	contentMediaTypeTag = "contentMediaType"
+	minPropertiesTag    = "minProperties"
+	maxPropertiesTag    = "maxProperties"
 )
 
 var regexAttributes = map[string]*regexp.Regexp{

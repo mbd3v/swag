@@ -287,6 +287,32 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 	}
 
 	schema.ReadOnly = ps.tag.Get(readOnlyTag) == "true"
+	schema.WriteOnly = ps.tag.Get(writeOnlyTag) == "true"
+	schema.Deprecated = ps.tag.Get(schemaDeprecatedTag) == "true"
+
+	if constTagValue := ps.tag.Get(constTag); constTagValue != "" {
+		schema.Const = constTagValue
+	}
+
+	if contentEncodingValue := ps.tag.Get(contentEncodingTag); contentEncodingValue != "" {
+		schema.ContentEncoding = contentEncodingValue
+	}
+
+	if contentMediaTypeValue := ps.tag.Get(contentMediaTypeTag); contentMediaTypeValue != "" {
+		schema.ContentMediaType = contentMediaTypeValue
+	}
+
+	minProperties, err := getIntTagV3(ps.tag, minPropertiesTag)
+	if err != nil {
+		return err
+	}
+	schema.MinProperties = minProperties
+
+	maxProperties, err := getIntTagV3(ps.tag, maxPropertiesTag)
+	if err != nil {
+		return err
+	}
+	schema.MaxProperties = maxProperties
 
 	defaultTagValue := ps.tag.Get(defaultTag)
 	if defaultTagValue != "" {
@@ -350,6 +376,19 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 		}
 	}
 
+	var anyOfSchemas []*spec.RefOrSpec[spec.Schema]
+	anyOfTagValue := ps.tag.Get(anyOfTag)
+	if anyOfTagValue != "" {
+		anyOfTypes := strings.Split((anyOfTagValue), ",")
+		for _, anyOfType := range anyOfTypes {
+			anyOfSchema, err := ps.p.getTypeSchemaV3(anyOfType, ps.file, true)
+			if err != nil {
+				return fmt.Errorf("can't find anyOf type %q: %v", anyOfType, err)
+			}
+			anyOfSchemas = append(anyOfSchemas, anyOfSchema)
+		}
+	}
+
 	elemSchema := schema
 	elemRefSchema := refSchema
 	var itemRef *spec.Ref
@@ -382,6 +421,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 	}
 	elemSchema.Pattern = field.pattern
 	elemSchema.OneOf = oneOfSchemas
+	elemSchema.AnyOf = anyOfSchemas
 
 	if itemRef != nil && !reflect.ValueOf(*elemSchema).IsZero() {
 		if elemSchema.Extensions == nil {

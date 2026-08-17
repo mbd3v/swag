@@ -90,6 +90,8 @@ func (p *Parser) parseGeneralAPIInfoV3(comments []string) error {
 
 			println("@basepath is deprecated use servers instead")
 
+		case "@schemadialect":
+			p.openAPI.JsonSchemaDialect = value
 		case acceptAttr:
 			println("acceptAttribute is deprecated, as there is no such field on top level in spec V3.1")
 		case produceAttr:
@@ -127,7 +129,7 @@ func (p *Parser) parseGeneralAPIInfoV3(comments []string) error {
 			}
 
 			tag.Spec.ExternalDocs.Spec.Description = value
-		case secBasicAttr, secAPIKeyAttr, secApplicationAttr, secImplicitAttr, secPasswordAttr, secAccessCodeAttr, secBearerAuthAttr:
+		case secBasicAttr, secAPIKeyAttr, secApplicationAttr, secImplicitAttr, secPasswordAttr, secAccessCodeAttr, secBearerAuthAttr, secOpenIDConnectAttr, secMutualTLSAttr:
 			key, scheme, err := parseSecAttributesV3(attribute, comments, &line)
 			if err != nil {
 				return err
@@ -345,6 +347,42 @@ func parseSecAttributesV3(context string, lines []string, index *int) (string, *
 			Type:   "http",
 			Scheme: "basic",
 		}
+		return key, &scheme, nil
+	case secMutualTLSAttr:
+		scheme := spec.SecurityScheme{
+			Type: "mutualTLS",
+		}
+		return key, &scheme, nil
+	case secOpenIDConnectAttr:
+		scheme := spec.SecurityScheme{
+			Type: "openIdConnect",
+		}
+		// Parse parameters
+		*index++
+		description := ""
+		for ; *index < len(lines); *index++ {
+			v := strings.TrimSpace(lines[*index])
+			if len(v) == 0 {
+				continue
+			}
+			fields := FieldsByAnySpace(v, 2)
+			securityAttr := strings.ToLower(fields[0])
+			var value string
+			if len(fields) > 1 {
+				value = fields[1]
+			}
+			if securityAttr == "@description" {
+				description = value
+			}
+			if securityAttr == "@openidconnecturl" {
+				scheme.OpenIDConnectURL = value
+			}
+			if strings.HasPrefix(securityAttr, "@securitydefinitions.") {
+				*index--
+				break
+			}
+		}
+		scheme.Description = description
 		return key, &scheme, nil
 	case secAPIKeyAttr:
 		search = []string{in, name}
@@ -569,7 +607,7 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 }
 
 func processRouterOperationV3(p *Parser, o *OperationV3) error {
-	if o.Responses != nil && o.Responses.Spec != nil &&
+	if len(o.RouterProperties) > 0 && o.Responses != nil && o.Responses.Spec != nil &&
 		len(o.Responses.Spec.Response) == 0 && o.Responses.Spec.Default == nil {
 		p.debug.Printf("warning: operation has no documented responses (missing @Success/@Failure/@Response)")
 	}

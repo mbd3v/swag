@@ -547,6 +547,50 @@ func TestParserParseServers(t *testing.T) {
 
 }
 
+func TestParseSecAttributesV3MutualTLS(t *testing.T) {
+	t.Parallel()
+
+	lines := []string{"@securitydefinitions.mutualtls MutualTLSAuth"}
+	index := 0
+
+	key, scheme, err := parseSecAttributesV3("@securitydefinitions.mutualtls", lines, &index)
+	require.NoError(t, err)
+	assert.Equal(t, "MutualTLSAuth", key)
+	require.NotNil(t, scheme)
+	assert.Equal(t, "mutualTLS", scheme.Type)
+}
+
+func TestParseSecAttributesV3OpenIDConnect(t *testing.T) {
+	t.Parallel()
+
+	lines := []string{
+		"@securitydefinitions.openidconnect OpenIDAuth",
+		"@openidconnecturl https://example.com/.well-known/openid-configuration",
+		"@description OpenID Connect authentication",
+	}
+	index := 0
+
+	key, scheme, err := parseSecAttributesV3("@securitydefinitions.openidconnect", lines, &index)
+	require.NoError(t, err)
+	assert.Equal(t, "OpenIDAuth", key)
+	require.NotNil(t, scheme)
+	assert.Equal(t, "openIdConnect", scheme.Type)
+	assert.Equal(t, "https://example.com/.well-known/openid-configuration", scheme.OpenIDConnectURL)
+	assert.Equal(t, "OpenID Connect authentication", scheme.Description)
+}
+
+func TestParseGeneralAPIInfoV3SchemaDialect(t *testing.T) {
+	t.Parallel()
+
+	p := New(GenerateOpenAPI3Doc(true))
+
+	err := p.parseGeneralAPIInfoV3([]string{
+		"@schemaDialect https://json-schema.org/draft/2020-12/schema",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "https://json-schema.org/draft/2020-12/schema", p.openAPI.JsonSchemaDialect)
+}
+
 func TestParserParseGeneralAPIInfoGlobalSecurityV3(t *testing.T) {
 	t.Parallel()
 
