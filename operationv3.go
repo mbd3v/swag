@@ -19,6 +19,25 @@ type parsedDiscriminator struct {
 	mapping      map[string]string // nil when not specified
 }
 
+// MIME types recognized by ParseAcceptComment and fillRequestBody.
+const (
+	mimeTypeJSON          = "application/json"
+	mimeTypeXML           = "text/xml"
+	mimeTypePlain         = "text/plain"
+	mimeTypeMultipartForm = "multipart/form-data"
+	mimeTypeURLEncoded    = "application/x-www-form-urlencoded"
+	mimeTypePNG           = "image/png"
+	mimeTypeJPEG          = "image/jpeg"
+	mimeTypeGIF           = "image/gif"
+	mimeTypeOctetStream   = "application/octet-stream"
+	mimeTypePDF           = "application/pdf"
+	mimeTypeMSExcel       = "application/msexcel"
+	mimeTypeZip           = "application/zip"
+	mimeTypeDocx          = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	mimeTypeXlsx          = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	mimeTypePptx          = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+)
+
 // OperationV3 describes a single API operation on a path.
 // For more information: https://github.com/swaggo/swag#api-operation
 type OperationV3 struct {
@@ -182,18 +201,18 @@ func (o *OperationV3) ParseAcceptComment(commentLine string) error {
 		schema := spec.NewSchemaSpec()
 
 		switch value {
-		case "application/json", "multipart/form-data", "text/xml", "application/x-www-form-urlencoded":
+		case mimeTypeJSON, mimeTypeMultipartForm, mimeTypeXML, mimeTypeURLEncoded:
 			schema.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
-		case "image/png",
-			"image/jpeg",
-			"image/gif",
-			"application/octet-stream",
-			"application/pdf",
-			"application/msexcel",
-			"application/zip",
-			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-			"application/vnd.openxmlformats-officedocument.presentationml.presentation":
+		case mimeTypePNG,
+			mimeTypeJPEG,
+			mimeTypeGIF,
+			mimeTypeOctetStream,
+			mimeTypePDF,
+			mimeTypeMSExcel,
+			mimeTypeZip,
+			mimeTypeDocx,
+			mimeTypeXlsx,
+			mimeTypePptx:
 			schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
 			schema.Spec.Format = "binary"
 		default:
@@ -501,20 +520,20 @@ func (o *OperationV3) formDataContentType(schema *spec.RefOrSpec[spec.Schema]) s
 	if o.RequestBody != nil && o.RequestBody.Spec != nil && o.RequestBody.Spec.Spec.Content != nil {
 		content := o.RequestBody.Spec.Spec.Content
 
-		if content["multipart/form-data"] != nil {
-			return "multipart/form-data"
+		if content[mimeTypeMultipartForm] != nil {
+			return mimeTypeMultipartForm
 		}
 
-		if content["application/x-www-form-urlencoded"] != nil {
-			return "application/x-www-form-urlencoded"
+		if content[mimeTypeURLEncoded] != nil {
+			return mimeTypeURLEncoded
 		}
 	}
 
 	if isBinarySchema(schema) {
-		return "multipart/form-data"
+		return mimeTypeMultipartForm
 	}
 
-	return "application/x-www-form-urlencoded"
+	return mimeTypeURLEncoded
 }
 
 func (o *OperationV3) fillRequestBody(
@@ -529,9 +548,9 @@ func (o *OperationV3) fillRequestBody(
 		o.RequestBody.Spec.Spec.Content = make(map[string]*spec.Extendable[spec.MediaType])
 	}
 
-	contentType := "application/json"
+	contentType := mimeTypeJSON
 	if primitive && !formData {
-		contentType = "text/plain"
+		contentType = mimeTypePlain
 	} else if formData {
 		contentType = o.formDataContentType(schema)
 	}
