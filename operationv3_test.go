@@ -1375,6 +1375,40 @@ func TestParseParamCommentByFormDataTypeUint64V3(t *testing.T) {
 	assert.Contains(t, requestBodySpec.Schema.Spec.Required, "file")
 }
 
+func TestParseParamCommentByFormDataTypeFileArrayV3(t *testing.T) {
+	t.Parallel()
+
+	comment := `@Param files formData []file true "multiple files"`
+	operation := NewOperationV3(New())
+
+	err := operation.ParseComment(comment, nil)
+	require.NoError(t, err)
+
+	assert.Len(t, operation.Parameters, 0)
+
+	requestBody := operation.RequestBody
+	require.NotNil(t, requestBody)
+	assert.Equal(t, "multiple files", requestBody.Spec.Spec.Description)
+
+	media := requestBody.Spec.Spec.Content["multipart/form-data"]
+	require.NotNil(t, media)
+	require.NotNil(t, media.Spec.Schema)
+	require.NotNil(t, media.Spec.Schema.Spec)
+
+	prop := media.Spec.Schema.Spec.Properties["files"]
+	require.NotNil(t, prop)
+	require.NotNil(t, prop.Spec)
+	assert.Equal(t, &typeArray, prop.Spec.Type)
+
+	require.NotNil(t, prop.Spec.Items)
+	require.NotNil(t, prop.Spec.Items.Schema)
+	require.NotNil(t, prop.Spec.Items.Schema.Spec)
+	assert.Equal(t, &typeString, prop.Spec.Items.Schema.Spec.Type)
+	assert.Equal(t, "binary", prop.Spec.Items.Schema.Spec.Format)
+
+	assert.Contains(t, media.Spec.Schema.Spec.Required, "files")
+}
+
 func TestParseParamCommentByFormDataMultipleParamsMultipartV3(t *testing.T) {
 	t.Parallel()
 

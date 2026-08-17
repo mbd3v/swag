@@ -475,6 +475,28 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 
 		}
 
+		if paramType == "formData" && objectType == ARRAY && refType == "file" {
+			itemSchema := spec.NewSchemaSpec()
+			itemSchema.Spec.Type = &spec.SingleOrArray[string]{STRING}
+			itemSchema.Spec.Format = "binary"
+
+			schema := spec.NewSchemaSpec()
+			schema.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
+			schema.Spec.Items = spec.NewBoolOrSchema(false, itemSchema)
+
+			err := o.parseParamAttributeForBody(commentLine, objectType, refType, schema.Spec)
+			if err != nil {
+				return err
+			}
+
+			err = o.fillRequestBody(name, schema, required, description, false, true)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}
+
 		schema, err := o.parseAPIObjectSchema(commentLine, objectType, refType, astFile)
 		if err != nil {
 			return err
@@ -513,7 +535,17 @@ func isBinarySchema(schema *spec.RefOrSpec[spec.Schema]) bool {
 	if schema == nil || schema.Spec == nil {
 		return false
 	}
-	return schema.Spec.Format == "binary"
+
+	if schema.Spec.Format == "binary" {
+		return true
+	}
+
+	if schema.Spec.Type != nil && len(*schema.Spec.Type) == 1 && (*schema.Spec.Type)[0] == ARRAY &&
+		schema.Spec.Items != nil && schema.Spec.Items.Schema != nil && schema.Spec.Items.Schema.Spec != nil {
+		return schema.Spec.Items.Schema.Spec.Format == "binary"
+	}
+
+	return false
 }
 
 func (o *OperationV3) formDataContentType(schema *spec.RefOrSpec[spec.Schema]) string {
