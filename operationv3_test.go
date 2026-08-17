@@ -203,6 +203,89 @@ func TestParseWebhookCommentInvalidMethodErrV3(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestParseCallbackCommentV3(t *testing.T) {
+	t.Parallel()
+
+	comment := `/@Callback createSubscription onData {$request.body#/callbackUrl} [post]`
+	operation := NewOperationV3(nil)
+	err := operation.ParseComment(comment, nil)
+	require.NoError(t, err)
+
+	require.NotNil(t, operation.CallbackTarget)
+	assert.Equal(t, "createSubscription", operation.CallbackTarget.ParentOperationID)
+	assert.Equal(t, "onData", operation.CallbackTarget.Name)
+	assert.Equal(t, "{$request.body#/callbackUrl}", operation.CallbackTarget.Expression)
+	assert.Equal(t, "POST", operation.CallbackTarget.HTTPMethod)
+	assert.Empty(t, operation.RouterProperties)
+	assert.Empty(t, operation.WebhookProperties)
+}
+
+func TestParseCallbackCommentMethodMissingErrV3(t *testing.T) {
+	t.Parallel()
+
+	comment := `/@Callback createSubscription onData {$request.body#/callbackUrl}`
+	operation := NewOperationV3(nil)
+	err := operation.ParseComment(comment, nil)
+	assert.Error(t, err)
+}
+
+func TestParseCallbackCommentInvalidMethodErrV3(t *testing.T) {
+	t.Parallel()
+
+	comment := `/@Callback createSubscription onData {$request.body#/callbackUrl} [notamethod]`
+	operation := NewOperationV3(nil)
+	err := operation.ParseComment(comment, nil)
+	assert.Error(t, err)
+}
+
+func TestParseLinkCommentV3(t *testing.T) {
+	t.Parallel()
+
+	operation := NewOperationV3(New())
+	operation.parser.addTestType("model.Address")
+
+	err := operation.ParseComment(`@Success 200 {object} model.Address`, nil)
+	require.NoError(t, err)
+
+	err = operation.ParseComment(`@Link 200 address getUserAddress "the user's address"`, nil)
+	require.NoError(t, err)
+
+	err = operation.ParseComment(`@Link.parameter address userId $request.path.id`, nil)
+	require.NoError(t, err)
+
+	response, ok := operation.Responses.Spec.Response["200"]
+	require.True(t, ok)
+	require.NotNil(t, response.Spec.Spec.Links)
+
+	link, ok := response.Spec.Spec.Links["address"]
+	require.True(t, ok)
+	assert.Equal(t, "getUserAddress", link.Spec.Spec.OperationId)
+	assert.Equal(t, "the user's address", link.Spec.Spec.Description)
+	assert.Equal(t, "$request.path.id", link.Spec.Spec.Parameters["userId"])
+}
+
+func TestParseLinkCommentUndeclaredResponseErrV3(t *testing.T) {
+	t.Parallel()
+
+	operation := NewOperationV3(New())
+
+	err := operation.ParseComment(`@Link 200 address getUserAddress "the user's address"`, nil)
+	assert.Error(t, err)
+}
+
+func TestParseLinkParameterCommentUndeclaredLinkErrV3(t *testing.T) {
+	t.Parallel()
+
+	operation := NewOperationV3(New())
+	operation.parser.addTestType("model.Address")
+
+	err := operation.ParseComment(`@Success 200 {object} model.Address`, nil)
+	require.NoError(t, err)
+
+	err = operation.ParseComment(`@Link.parameter address userId $request.path.id`, nil)
+	assert.Error(t, err)
+}
+
 func TestOperation_ParseResponseWithDefaultV3(t *testing.T) {
 	t.Parallel()
 

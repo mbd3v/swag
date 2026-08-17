@@ -46,8 +46,12 @@ type OperationV3 struct {
 	spec.Operation
 	RouterProperties  []RouteProperties
 	WebhookProperties []RouteProperties
+	CallbackTarget    *CallbackTarget
 	responseMimeTypes []string
 	discriminatorInfo *parsedDiscriminator
+	// linksByName tracks links declared via @Link, keyed by link name, so a later
+	// @Link.parameter comment for the same name can find and mutate it.
+	linksByName map[string]*spec.RefOrSpec[spec.Extendable[spec.Link]]
 }
 
 // NewOperationV3 returns a new instance of OperationV3.
@@ -122,6 +126,12 @@ func (o *OperationV3) ParseComment(comment string, astFile *ast.File) error {
 		return o.ParseRouterComment(lineRemainder)
 	case webhookAttr:
 		return o.ParseWebhookComment(lineRemainder)
+	case callbackAttr:
+		return o.ParseCallbackComment(lineRemainder)
+	case linkAttr:
+		return o.ParseLinkComment(lineRemainder)
+	case linkParameterAttr:
+		return o.ParseLinkParameterComment(lineRemainder)
 	case securityAttr:
 		return o.ParseSecurityComment(lineRemainder)
 	case deprecatedAttr:
@@ -962,6 +972,43 @@ func (o *OperationV3) ParseWebhookComment(commentLine string) error {
 	return nil
 }
 
+// CallbackTarget describes where an operation declared via @Callback should be attached:
+// under the Callbacks map of the operation identified by ParentOperationID.
+type CallbackTarget struct {
+	ParentOperationID string
+	Name              string
+	Expression        string
+	HTTPMethod        string
+}
+
+// ParseCallbackComment parses comment for given `callback` comment string.
+// Syntax: @Callback parentOperationId name expression [method]
+// e.g. @Callback createSubscription onData {$request.body#/callbackUrl} [post]
+// The function this comment is attached to is documented like any other handler (its own
+// @Param/@Success/@Accept/etc. build its request and response), but instead of being
+// attached to a route or a webhook name, its resulting operation is attached under the
+// Callbacks map of the operation whose operationId is parentOperationId.
+func (o *OperationV3) ParseCallbackComment(commentLine string) error {
+	matches := callbackPattern.FindStringSubmatch(commentLine)
+	if len(matches) != 5 {
+		return fmt.Errorf("can not parse callback comment \"%s\"", commentLine)
+	}
+
+	method := strings.ToUpper(matches[4])
+	if _, ok := allMethod[method]; !ok {
+		return fmt.Errorf("invalid method: %s", method)
+	}
+
+	o.CallbackTarget = &CallbackTarget{
+		ParentOperationID: matches[1],
+		Name:              matches[2],
+		Expression:        matches[3],
+		HTTPMethod:        method,
+	}
+
+	return nil
+}
+
 func (o *OperationV3) ParseServerURLComment(commentLine string) error {
 	server := spec.NewServer()
 	server.Spec.URL = commentLine
@@ -1137,6 +1184,85 @@ func newHeaderSpecV3(schemaType, description string) *spec.RefOrSpec[spec.Extend
 	result.Spec.Spec.Schema.Spec.Type = &spec.SingleOrArray[string]{schemaType}
 
 	return result
+}
+
+// ParseLinkComment parses comment for given `link` comment string.
+// Syntax: @Link code name operationId "description"
+// e.g. @Link 200 address getUserAddress "the user's address"
+// Must come after the @Success/@Failure/@Response that declares the response code.
+func (o *OperationV3) ParseLinkComment(commentLine string) error {
+	matches := responsePattern.FindStringSubmatch(commentLine)
+	if len(matches) != 5 {
+		return fmt.Errorf("can not parse link comment \"%s\"", commentLine)
+	}
+
+	name := strings.Trim(matches[2], "{}")
+	operationID := strings.TrimSpace(matches[3])
+	description := strings.Trim(matches[4], "\"")
+
+	link := spec.NewLinkSpec()
+	link.Spec.Spec.OperationId = operationID
+	link.Spec.Spec.Description = description
+
+	if o.linksByName == nil {
+		o.linksByName = map[string]*spec.RefOrSpec[spec.Extendable[spec.Link]]{}
+	}
+	o.linksByName[name] = link
+
+	for _, codeStr := range strings.Split(matches[1], ",") {
+		if strings.EqualFold(codeStr, defaultTag) {
+			if o.Responses.Spec.Default == nil {
+				return fmt.Errorf("@Link for undeclared default response; add @Failure default first")
+			}
+
+			if o.Responses.Spec.Default.Spec.Spec.Links == nil {
+				o.Responses.Spec.Default.Spec.Spec.Links = map[string]*spec.RefOrSpec[spec.Extendable[spec.Link]]{}
+			}
+
+			o.Responses.Spec.Default.Spec.Spec.Links[name] = link
+
+			continue
+		}
+
+		response, ok := o.Responses.Spec.Response[codeStr]
+		if !ok {
+			return fmt.Errorf("@Link for undeclared response code %q; add @Success/@Failure %s first", codeStr, codeStr)
+		}
+
+		if response.Spec.Spec.Links == nil {
+			response.Spec.Spec.Links = map[string]*spec.RefOrSpec[spec.Extendable[spec.Link]]{}
+		}
+
+		response.Spec.Spec.Links[name] = link
+	}
+
+	return nil
+}
+
+// ParseLinkParameterComment parses comment for given `link.parameter` comment string.
+// Syntax: @Link.parameter name paramName expression
+// e.g. @Link.parameter address userId $request.path.id
+// Must come after the @Link that declares the link name.
+func (o *OperationV3) ParseLinkParameterComment(commentLine string) error {
+	fields := FieldsByAnySpace(commentLine, 3)
+	if len(fields) != 3 {
+		return fmt.Errorf("can not parse link parameter comment \"%s\"", commentLine)
+	}
+
+	name, paramName, expression := fields[0], fields[1], fields[2]
+
+	link, ok := o.linksByName[name]
+	if !ok {
+		return fmt.Errorf("@Link.parameter for undeclared link %q; add @Link %s first", name, name)
+	}
+
+	if link.Spec.Spec.Parameters == nil {
+		link.Spec.Spec.Parameters = map[string]any{}
+	}
+
+	link.Spec.Spec.Parameters[paramName] = expression
+
+	return nil
 }
 
 // ParseResponseComment parses comment for given `response` comment string.

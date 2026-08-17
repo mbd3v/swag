@@ -400,6 +400,45 @@ func TestParseWebhooksV3(t *testing.T) {
 	assert.NotContains(t, p.openAPI.Paths.Spec.Paths, "petDeleted")
 }
 
+func TestParseCallbacksAndLinksV3(t *testing.T) {
+	t.Parallel()
+
+	searchDir := "testdata/v3/callbacks"
+
+	p := New(GenerateOpenAPI3Doc(true))
+	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
+	require.NoError(t, err)
+
+	require.NotNil(t, p.openAPI.Paths)
+	createSub, ok := p.openAPI.Paths.Spec.Paths["/subscriptions"]
+	require.True(t, ok)
+	require.NotNil(t, createSub.Spec.Spec.Post)
+
+	post := createSub.Spec.Spec.Post.Spec
+
+	// the standalone callback function must not have leaked into paths itself
+	assert.NotContains(t, p.openAPI.Paths.Spec.Paths, "onData")
+
+	// @Callback: the standalone function's operation must be attached under Callbacks
+	require.Contains(t, post.Callbacks, "onData")
+	callback := post.Callbacks["onData"].Spec.Spec
+	require.Contains(t, callback.Callback, "{$request.body#/callbackUrl}")
+
+	callbackPathItem := callback.Callback["{$request.body#/callbackUrl}"].Spec.Spec
+	require.NotNil(t, callbackPathItem.Post)
+	assert.Equal(t, "New subscription data", callbackPathItem.Post.Spec.Summary)
+	require.NotNil(t, callbackPathItem.Post.Spec.RequestBody)
+	assert.Contains(t, callbackPathItem.Post.Spec.RequestBody.Spec.Spec.Content, "application/json")
+
+	// @Link: response 200 on /subscriptions must link to getUserAddress
+	response, ok := post.Responses.Spec.Response["200"]
+	require.True(t, ok)
+	require.Contains(t, response.Spec.Spec.Links, "address")
+	link := response.Spec.Spec.Links["address"].Spec.Spec
+	assert.Equal(t, "getUserAddress", link.OperationId)
+	assert.Equal(t, "$response.body#/id", link.Parameters["userId"])
+}
+
 func TestParseSimpleApiV3(t *testing.T) {
 	t.Parallel()
 

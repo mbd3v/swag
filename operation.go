@@ -736,6 +736,9 @@ var routerPattern = regexp.MustCompile(`^(/[\w./\-{}\(\)+:$]*)[[:blank:]]+\[(\w+
 // arbitrary identifiers, not URL paths, so no leading "/" is required.
 var webhookPattern = regexp.MustCompile(`^([\w.\-]+)[[:blank:]]+\[(\w+)]`)
 
+// callbackPattern matches "@Callback parentOperationId name expression [method]".
+var callbackPattern = regexp.MustCompile(`^(\S+)[[:blank:]]+(\S+)[[:blank:]]+(\S+)[[:blank:]]+\[(\w+)]`)
+
 // ParseRouterComment parses comment for given `router` comment string.
 func (operation *Operation) ParseRouterComment(commentLine string, deprecated bool) error {
 	matches := routerPattern.FindStringSubmatch(commentLine)

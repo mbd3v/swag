@@ -46,6 +46,9 @@ const (
 	routerAttr           = "@router"
 	deprecatedRouterAttr = "@deprecatedrouter"
 	webhookAttr          = "@webhook"
+	callbackAttr         = "@callback"
+	linkAttr             = "@link"
+	linkParameterAttr    = "@link.parameter"
 
 	summaryAttr              = "@summary"
 	deprecatedAttr           = "@deprecated"
@@ -205,6 +208,11 @@ type Parser struct {
 
 	// use new openAPI version
 	openAPIVersion bool
+
+	// pendingCallbacksV3 holds operations declared via @Callback, collected across all
+	// files during ParseRouterAPIInfoV3 and resolved against their parent operationId
+	// once every file has been parsed (a callback's parent may live in a different file).
+	pendingCallbacksV3 []*OperationV3
 }
 
 // FieldParserFactory create FieldParser.
@@ -500,6 +508,11 @@ func (parser *Parser) ParseAPIMultiSearchDir(searchDirs []string, mainAPIFile st
 
 	if parser.openAPIVersion {
 		err = parser.packages.RangeFiles(parser.ParseRouterAPIInfoV3)
+		if err != nil {
+			return err
+		}
+
+		err = parser.resolveCallbacksV3()
 		if err != nil {
 			return err
 		}

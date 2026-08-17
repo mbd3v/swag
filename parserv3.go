@@ -605,6 +605,10 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 			if err != nil {
 				return err
 			}
+
+			if operation.CallbackTarget != nil {
+				p.pendingCallbacksV3 = append(p.pendingCallbacksV3, operation)
+			}
 		}
 	}
 
@@ -612,7 +616,8 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 }
 
 func processRouterOperationV3(p *Parser, o *OperationV3) error {
-	if (len(o.RouterProperties) > 0 || len(o.WebhookProperties) > 0) && o.Responses != nil && o.Responses.Spec != nil &&
+	hasAttachment := len(o.RouterProperties) > 0 || len(o.WebhookProperties) > 0 || o.CallbackTarget != nil
+	if hasAttachment && o.Responses != nil && o.Responses.Spec != nil &&
 		len(o.Responses.Spec.Response) == 0 && o.Responses.Spec.Default == nil {
 		p.debug.Printf("warning: operation has no documented responses (missing @Success/@Failure/@Response)")
 	}
@@ -692,6 +697,87 @@ func processWebhookOperationV3(p *Parser, o *OperationV3) error {
 	return nil
 }
 
+// resolveCallbacksV3 attaches every operation collected via @Callback under its parent
+// operation's Callbacks map. Must run after every file has been parsed (RangeFiles is
+// per-file, but a callback's parent operation may live in a different file), so this is
+// called once after the full RangeFiles(ParseRouterAPIInfoV3) pass, not per-file.
+func (p *Parser) resolveCallbacksV3() error {
+	if len(p.pendingCallbacksV3) == 0 {
+		return nil
+	}
+
+	operationsByID := make(map[string]*spec.Operation)
+
+	collect := func(item *spec.PathItem) {
+		for method := range allMethod {
+			op := readRouteMethodOpV3(item, method)
+			if op != nil && op.OperationID != "" {
+				operationsByID[op.OperationID] = op
+			}
+		}
+	}
+
+	if p.openAPI.Paths != nil {
+		for _, pathItem := range p.openAPI.Paths.Spec.Paths {
+			collect(pathItem.Spec.Spec)
+		}
+	}
+
+	for _, pathItem := range p.openAPI.WebHooks {
+		collect(pathItem.Spec.Spec)
+	}
+
+	for _, o := range p.pendingCallbacksV3 {
+		target := o.CallbackTarget
+
+		parent, ok := operationsByID[target.ParentOperationID]
+		if !ok {
+			err := fmt.Errorf("@Callback references unknown parent operationId %q", target.ParentOperationID)
+			if p.Strict {
+				return err
+			}
+
+			p.debug.Printf("warning: %s\n", err)
+
+			continue
+		}
+
+		if parent.Callbacks == nil {
+			parent.Callbacks = make(map[string]*spec.RefOrSpec[spec.Extendable[spec.Callback]])
+		}
+
+		callback, ok := parent.Callbacks[target.Name]
+		if !ok {
+			callback = spec.NewCallbackSpec()
+			parent.Callbacks[target.Name] = callback
+		}
+
+		pathItem, ok := callback.Spec.Spec.Callback[target.Expression]
+		if !ok {
+			pathItem = &spec.RefOrSpec[spec.Extendable[spec.PathItem]]{
+				Spec: &spec.Extendable[spec.PathItem]{
+					Spec: &spec.PathItem{},
+				},
+			}
+			callback.Spec.Spec.Callback[target.Expression] = pathItem
+		}
+
+		op := refRouteMethodOpV3(pathItem.Spec.Spec, target.HTTPMethod)
+		if *op != nil {
+			err := fmt.Errorf("callback %s %s %s is declared multiple times", target.ParentOperationID, target.Name, target.HTTPMethod)
+			if p.Strict {
+				return err
+			}
+
+			p.debug.Printf("warning: %s\n", err)
+		}
+
+		*op = &o.Operation
+	}
+
+	return nil
+}
+
 func refRouteMethodOpV3(item *spec.PathItem, method string) **spec.Operation {
 	switch method {
 	case http.MethodGet:
@@ -732,6 +818,37 @@ func refRouteMethodOpV3(item *spec.PathItem, method string) **spec.Operation {
 	default:
 		return nil
 	}
+}
+
+// readRouteMethodOpV3 is the read-only counterpart to refRouteMethodOpV3: it never
+// allocates the per-method Extendable[Operation] wrapper, so callers that only need to
+// inspect an existing operation (not attach a new one) don't leave behind an empty,
+// non-nil wrapper that would then marshal as a spurious "method: null" in the output.
+func readRouteMethodOpV3(item *spec.PathItem, method string) *spec.Operation {
+	var wrapper *spec.Extendable[spec.Operation]
+
+	switch method {
+	case http.MethodGet:
+		wrapper = item.Get
+	case http.MethodPost:
+		wrapper = item.Post
+	case http.MethodDelete:
+		wrapper = item.Delete
+	case http.MethodPut:
+		wrapper = item.Put
+	case http.MethodPatch:
+		wrapper = item.Patch
+	case http.MethodHead:
+		wrapper = item.Head
+	case http.MethodOptions:
+		wrapper = item.Options
+	}
+
+	if wrapper == nil {
+		return nil
+	}
+
+	return wrapper.Spec
 }
 
 func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
