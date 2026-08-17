@@ -45,6 +45,7 @@ const (
 	tagsAttr             = "@tags"
 	routerAttr           = "@router"
 	deprecatedRouterAttr = "@deprecatedrouter"
+	webhookAttr          = "@webhook"
 
 	summaryAttr              = "@summary"
 	deprecatedAttr           = "@deprecated"

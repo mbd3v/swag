@@ -368,6 +368,38 @@ func TestParsePet(t *testing.T) {
 
 }
 
+func TestParseWebhooksV3(t *testing.T) {
+	t.Parallel()
+
+	searchDir := "testdata/v3/webhooks"
+
+	p := New(GenerateOpenAPI3Doc(true))
+	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
+	require.NoError(t, err)
+
+	// a normal @Router endpoint must still show up under paths, unaffected by @Webhook
+	require.NotNil(t, p.openAPI.Paths)
+	assert.Contains(t, p.openAPI.Paths.Spec.Paths, "/pets")
+
+	require.NotNil(t, p.openAPI.WebHooks)
+	require.Contains(t, p.openAPI.WebHooks, "newPetPosted")
+	require.Contains(t, p.openAPI.WebHooks, "petDeleted")
+
+	newPetPosted := p.openAPI.WebHooks["newPetPosted"].Spec.Spec
+	require.NotNil(t, newPetPosted.Post)
+	assert.Equal(t, "New pet posted", newPetPosted.Post.Spec.Summary)
+	require.NotNil(t, newPetPosted.Post.Spec.RequestBody)
+	assert.Contains(t, newPetPosted.Post.Spec.RequestBody.Spec.Spec.Content, "application/json")
+
+	petDeleted := p.openAPI.WebHooks["petDeleted"].Spec.Spec
+	require.NotNil(t, petDeleted.Post)
+	assert.Equal(t, "Pet deleted", petDeleted.Post.Spec.Summary)
+
+	// webhooks must not leak into paths, and vice versa
+	assert.NotContains(t, p.openAPI.Paths.Spec.Paths, "newPetPosted")
+	assert.NotContains(t, p.openAPI.Paths.Spec.Paths, "petDeleted")
+}
+
 func TestParseSimpleApiV3(t *testing.T) {
 	t.Parallel()
 

@@ -732,6 +732,10 @@ func parseMimeTypeList(mimeTypeList string, typeList *[]string, format string) e
 
 var routerPattern = regexp.MustCompile(`^(/[\w./\-{}\(\)+:$]*)[[:blank:]]+\[(\w+)]`)
 
+// webhookPattern matches "@Webhook name [method]" — unlike routes, webhook names are
+// arbitrary identifiers, not URL paths, so no leading "/" is required.
+var webhookPattern = regexp.MustCompile(`^([\w.\-]+)[[:blank:]]+\[(\w+)]`)
+
 // ParseRouterComment parses comment for given `router` comment string.
 func (operation *Operation) ParseRouterComment(commentLine string, deprecated bool) error {
 	matches := routerPattern.FindStringSubmatch(commentLine)

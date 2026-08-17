@@ -155,6 +155,54 @@ func TestParseRouterCommentMethodMissingErrV3(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestParseWebhookCommentV3(t *testing.T) {
+	t.Parallel()
+
+	comment := `/@Webhook newPetPosted [post]`
+	operation := NewOperationV3(nil)
+	err := operation.ParseComment(comment, nil)
+	require.NoError(t, err)
+
+	assert.Len(t, operation.WebhookProperties, 1)
+	assert.Equal(t, "newPetPosted", operation.WebhookProperties[0].Path)
+	assert.Equal(t, "POST", operation.WebhookProperties[0].HTTPMethod)
+	assert.Empty(t, operation.RouterProperties, "a @Webhook comment must not also register a @Router route")
+}
+
+func TestParseWebhookCommentMultipleV3(t *testing.T) {
+	t.Parallel()
+
+	operation := NewOperationV3(nil)
+
+	err := operation.ParseComment(`/@Webhook newPetPosted [post]`, nil)
+	require.NoError(t, err)
+
+	err = operation.ParseComment(`/@Webhook petDeleted [post]`, nil)
+	require.NoError(t, err)
+
+	assert.Len(t, operation.WebhookProperties, 2)
+	assert.Equal(t, "newPetPosted", operation.WebhookProperties[0].Path)
+	assert.Equal(t, "petDeleted", operation.WebhookProperties[1].Path)
+}
+
+func TestParseWebhookCommentMethodMissingErrV3(t *testing.T) {
+	t.Parallel()
+
+	comment := `/@Webhook newPetPosted`
+	operation := NewOperationV3(nil)
+	err := operation.ParseComment(comment, nil)
+	assert.Error(t, err)
+}
+
+func TestParseWebhookCommentInvalidMethodErrV3(t *testing.T) {
+	t.Parallel()
+
+	comment := `/@Webhook newPetPosted [notamethod]`
+	operation := NewOperationV3(nil)
+	err := operation.ParseComment(comment, nil)
+	assert.Error(t, err)
+}
+
 func TestOperation_ParseResponseWithDefaultV3(t *testing.T) {
 	t.Parallel()
 

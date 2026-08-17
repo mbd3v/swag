@@ -45,6 +45,7 @@ type OperationV3 struct {
 	codeExampleFilesDir string
 	spec.Operation
 	RouterProperties  []RouteProperties
+	WebhookProperties []RouteProperties
 	responseMimeTypes []string
 	discriminatorInfo *parsedDiscriminator
 }
@@ -119,6 +120,8 @@ func (o *OperationV3) ParseComment(comment string, astFile *ast.File) error {
 		return o.ParseResponseHeaderComment(lineRemainder, astFile)
 	case routerAttr:
 		return o.ParseRouterComment(lineRemainder)
+	case webhookAttr:
+		return o.ParseWebhookComment(lineRemainder)
 	case securityAttr:
 		return o.ParseSecurityComment(lineRemainder)
 	case deprecatedAttr:
@@ -932,6 +935,29 @@ func (o *OperationV3) ParseRouterComment(commentLine string) error {
 	}
 
 	o.RouterProperties = append(o.RouterProperties, signature)
+
+	return nil
+}
+
+// ParseWebhookComment parses comment for given `webhook` comment string.
+// Syntax: @Webhook name [method] — e.g. @Webhook newPetPosted [post]. Unlike @Router, the
+// first token is an arbitrary webhook name, not a URL path.
+func (o *OperationV3) ParseWebhookComment(commentLine string) error {
+	matches := webhookPattern.FindStringSubmatch(commentLine)
+	if len(matches) != 3 {
+		return fmt.Errorf("can not parse webhook comment \"%s\"", commentLine)
+	}
+
+	signature := RouteProperties{
+		Path:       matches[1],
+		HTTPMethod: strings.ToUpper(matches[2]),
+	}
+
+	if _, ok := allMethod[signature.HTTPMethod]; !ok {
+		return fmt.Errorf("invalid method: %s", signature.HTTPMethod)
+	}
+
+	o.WebhookProperties = append(o.WebhookProperties, signature)
 
 	return nil
 }

@@ -600,6 +600,11 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 			if err != nil {
 				return err
 			}
+
+			err = processWebhookOperationV3(p, operation)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -607,7 +612,7 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 }
 
 func processRouterOperationV3(p *Parser, o *OperationV3) error {
-	if len(o.RouterProperties) > 0 && o.Responses != nil && o.Responses.Spec != nil &&
+	if (len(o.RouterProperties) > 0 || len(o.WebhookProperties) > 0) && o.Responses != nil && o.Responses.Spec != nil &&
 		len(o.Responses.Spec.Response) == 0 && o.Responses.Spec.Default == nil {
 		p.debug.Printf("warning: operation has no documented responses (missing @Success/@Failure/@Response)")
 	}
@@ -642,6 +647,46 @@ func processRouterOperationV3(p *Parser, o *OperationV3) error {
 		*op = &o.Operation
 
 		p.openAPI.Paths.Spec.Paths[routeProperties.Path] = pathItem
+	}
+
+	return nil
+}
+
+func processWebhookOperationV3(p *Parser, o *OperationV3) error {
+	for _, webhookProperties := range o.WebhookProperties {
+		var (
+			pathItem *spec.RefOrSpec[spec.Extendable[spec.PathItem]]
+			ok       bool
+		)
+
+		if p.openAPI.WebHooks == nil {
+			p.openAPI.WebHooks = make(map[string]*spec.RefOrSpec[spec.Extendable[spec.PathItem]])
+		}
+
+		pathItem, ok = p.openAPI.WebHooks[webhookProperties.Path]
+		if !ok {
+			pathItem = &spec.RefOrSpec[spec.Extendable[spec.PathItem]]{
+				Spec: &spec.Extendable[spec.PathItem]{
+					Spec: &spec.PathItem{},
+				},
+			}
+		}
+
+		op := refRouteMethodOpV3(pathItem.Spec.Spec, webhookProperties.HTTPMethod)
+
+		// check if we already have an operation for this webhook name and method
+		if *op != nil {
+			err := fmt.Errorf("webhook %s %s is declared multiple times", webhookProperties.HTTPMethod, webhookProperties.Path)
+			if p.Strict {
+				return err
+			}
+
+			p.debug.Printf("warning: %s\n", err)
+		}
+
+		*op = &o.Operation
+
+		p.openAPI.WebHooks[webhookProperties.Path] = pathItem
 	}
 
 	return nil
