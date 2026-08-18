@@ -314,6 +314,14 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 	}
 	schema.MaxProperties = maxProperties
 
+	if patternPropertiesValue := ps.tag.Get(patternPropertiesTag); patternPropertiesValue != "" {
+		patternProperties, err := parsePatternPropertiesV3(ps.p, ps.file, patternPropertiesValue)
+		if err != nil {
+			return err
+		}
+		schema.PatternProperties = patternProperties
+	}
+
 	defaultTagValue := ps.tag.Get(defaultTag)
 	if defaultTagValue != "" {
 		value, err := defineType(field.schemaType, defaultTagValue)
@@ -480,6 +488,35 @@ func getIntTagV3(structTag reflect.StructTag, tagName string) (*int, error) {
 	}
 
 	return &value, nil
+}
+
+// parsePatternPropertiesV3 parses a patternProperties struct tag value of the form
+// "regex1=Type1,regex2=Type2" (one or more comma-separated regex=typeName pairs) into the
+// JSON Schema 2020-12 patternProperties map: which schema a property's value must satisfy,
+// keyed by a regex its property *name* must match. Only meaningful on map-typed fields,
+// where Go's static typing can't otherwise express "different value types for different
+// key patterns within the same field" the way additionalProperties alone can.
+func parsePatternPropertiesV3(p *Parser, file *ast.File, tagValue string) (map[string]*spec.RefOrSpec[spec.Schema], error) {
+	result := make(map[string]*spec.RefOrSpec[spec.Schema])
+
+	for _, pair := range strings.Split(tagValue, ",") {
+		pattern, typeName, ok := strings.Cut(pair, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid patternProperties entry %q: expected pattern=typeName", pair)
+		}
+
+		pattern = strings.TrimSpace(pattern)
+		typeName = strings.TrimSpace(typeName)
+
+		schema, err := p.getTypeSchemaV3(typeName, file, true)
+		if err != nil {
+			return nil, fmt.Errorf("can't find patternProperties type %q: %v", typeName, err)
+		}
+
+		result[pattern] = schema
+	}
+
+	return result, nil
 }
 
 func (sf *structFieldV3) parseValidTags(validTag string) {

@@ -169,6 +169,43 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		assert.Len(t, schema.Spec.AnyOf, 2)
 	})
 
+	t.Run("PatternProperties tag", func(t *testing.T) {
+		t.Parallel()
+
+		schema := spec.NewSchemaSpec()
+		schema.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
+		err := newTagBaseFieldParserV3(
+			New(),
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"extra" patternProperties:"^S_.*=string,^N_.*=int"`,
+			}},
+		).ComplementSchema(schema)
+		require.NoError(t, err)
+		require.Len(t, schema.Spec.PatternProperties, 2)
+
+		require.Contains(t, schema.Spec.PatternProperties, "^S_.*")
+		assert.Equal(t, &spec.SingleOrArray[string]{STRING}, schema.Spec.PatternProperties["^S_.*"].Spec.Type)
+
+		require.Contains(t, schema.Spec.PatternProperties, "^N_.*")
+		assert.Equal(t, &spec.SingleOrArray[string]{INTEGER}, schema.Spec.PatternProperties["^N_.*"].Spec.Type)
+	})
+
+	t.Run("PatternProperties tag invalid entry", func(t *testing.T) {
+		t.Parallel()
+
+		schema := spec.NewSchemaSpec()
+		schema.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
+		err := newTagBaseFieldParserV3(
+			New(),
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"extra" patternProperties:"not-a-pair"`,
+			}},
+		).ComplementSchema(schema)
+		assert.Error(t, err)
+	})
+
 	t.Run("Required tag", func(t *testing.T) {
 		t.Parallel()
 

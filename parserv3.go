@@ -1045,8 +1045,42 @@ func fillDefinitionDescriptionV3(parser *Parser, definition *spec.Schema, file *
 			}
 
 			definition.Description = text
+
+			if pattern := extractPropertyNamesPatternV3(typeSpec.Comment, generalDeclaration.Doc); pattern != "" {
+				nameSchema := spec.NewSchemaSpec()
+				nameSchema.Spec.Pattern = pattern
+				definition.PropertyNames = nameSchema
+			}
 		}
 	}
+}
+
+// extractPropertyNamesPatternV3 scans a type's doc comment for an "@PropertyNames <regex>"
+// directive constraining what its object schema's property names may look like — the
+// JSON Schema 2020-12 propertyNames keyword. Returns "" if no such directive is present.
+// Syntax: @PropertyNames ^[a-z][a-z0-9_]*$
+func extractPropertyNamesPatternV3(commentGroups ...*ast.CommentGroup) string {
+	for _, commentGroup := range commentGroups {
+		if commentGroup == nil {
+			continue
+		}
+
+		for _, comment := range commentGroup.List {
+			commentText := strings.TrimSpace(strings.TrimLeft(comment.Text, "/"))
+			if commentText == "" {
+				continue
+			}
+
+			fields := FieldsByAnySpace(commentText, 2)
+			if strings.ToLower(fields[0]) != propertyNamesAttr || len(fields) < 2 {
+				continue
+			}
+
+			return strings.TrimSpace(fields[1])
+		}
+	}
+
+	return ""
 }
 
 // parseTypeExprV3 parses given type expression that corresponds to the type under

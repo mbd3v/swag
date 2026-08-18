@@ -13,6 +13,27 @@ import (
 	"github.com/sv-tools/openapi/spec"
 )
 
+func TestExtractPropertyNamesPatternV3(t *testing.T) {
+	t.Parallel()
+
+	found := extractPropertyNamesPatternV3(&ast.CommentGroup{
+		List: []*ast.Comment{
+			{Text: "// Config holds dynamic settings."},
+			{Text: "// @PropertyNames ^[a-z][a-z0-9_]*$"},
+		},
+	})
+	assert.Equal(t, "^[a-z][a-z0-9_]*$", found)
+
+	notFound := extractPropertyNamesPatternV3(&ast.CommentGroup{
+		List: []*ast.Comment{
+			{Text: "// Config holds dynamic settings."},
+		},
+	})
+	assert.Equal(t, "", notFound)
+
+	assert.Equal(t, "", extractPropertyNamesPatternV3(nil))
+}
+
 func TestOverridesGetTypeSchemaV3(t *testing.T) {
 	t.Parallel()
 
@@ -438,6 +459,41 @@ func TestParseCallbacksAndLinksV3(t *testing.T) {
 	link := response.Spec.Spec.Links["address"].Spec.Spec
 	assert.Equal(t, "getUserAddress", link.OperationId)
 	assert.Equal(t, "$response.body#/id", link.Parameters["userId"])
+}
+
+func TestSchemaKeywordsV3(t *testing.T) {
+	t.Parallel()
+
+	searchDir := "testdata/v3/schemakeywords"
+
+	p := New(GenerateOpenAPI3Doc(true))
+	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
+	require.NoError(t, err)
+
+	schemas := p.openAPI.Components.Spec.Schemas
+
+	// patternProperties: field-level tag on Config.Extra
+	config, ok := schemas["main.Config"]
+	require.True(t, ok)
+	extra, ok := config.Spec.Properties["extra"]
+	require.True(t, ok)
+	require.Len(t, extra.Spec.PatternProperties, 2)
+
+	require.Contains(t, extra.Spec.PatternProperties, "^is_.*")
+	assert.Equal(t, &spec.SingleOrArray[string]{BOOLEAN}, extra.Spec.PatternProperties["^is_.*"].Spec.Type)
+
+	require.Contains(t, extra.Spec.PatternProperties, "^count_.*")
+	assert.Equal(t, &spec.SingleOrArray[string]{INTEGER}, extra.Spec.PatternProperties["^count_.*"].Spec.Type)
+
+	// propertyNames: type-level @PropertyNames directive on the named map type Labels
+	labels, ok := schemas["main.Labels"]
+	require.True(t, ok)
+	require.NotNil(t, labels.Spec.PropertyNames)
+	require.NotNil(t, labels.Spec.PropertyNames.Spec)
+	assert.Equal(t, "^[a-z][a-z0-9_]*$", labels.Spec.PropertyNames.Spec.Pattern)
+
+	// propertyNames must not have leaked onto the unrelated Config schema
+	assert.Nil(t, config.Spec.PropertyNames)
 }
 
 func TestDeduplicateComponentsV3(t *testing.T) {
